@@ -1,180 +1,58 @@
 # R1
 
-## Core Editor Features
+## Core Editing
 
-The text editor is built on PyQt6's `QPlainTextEdit`, providing a robust foundation for plain text editing. The core editing capabilities include:
+Built on PyQt6's `QPlainTextEdit` with all the basics working: text editing, undo/redo, cut/copy/paste, and some nice extras like duplicate line (Ctrl+Shift+D), delete line (Ctrl+Shift+K), and move lines up/down (Alt+Up/Down). Uses Menlo font with 4-space tabs.
 
-- **Text editing**: Full text input with undo/redo support (Ctrl+Z, Ctrl+Shift+Z)
-- **Selection**: Select word (Ctrl+D), select line (Ctrl+L), select all (Ctrl+A)
-- **Clipboard**: Cut (Ctrl+X), copy (Ctrl+C), paste (Ctrl+V)
-- **Line manipulation**: Duplicate line (Ctrl+Shift+D), delete line (Ctrl+Shift+K), move line up/down (Alt+Up/Down)
+The `TextEditor` class is pretty straightforward—it handles file I/O and emits signals when things change. This keeps the UI stuff (tabs, status bar) decoupled from the actual editing logic, which makes testing way easier.
 
-The editor uses a monospace font (Menlo, 12pt) with 4-space tab stops for code-friendly editing. Line wrapping is disabled by default to maintain code readability. The architecture separates the core editor widget (`TextEditor`) from the window management, allowing multiple independent editor instances to be created and managed by the tab and split systems.
-
-Each editor instance maintains its own state including file path and modification tracking, emitting Qt signals when the cursor position or document modification state changes. This signal-based architecture allows the UI (tabs, status bar, window title) to stay synchronized with the editor state without tight coupling.
-
-**Validation**: The `TestEditorBasics` and `TestLineOperations` test classes in `tests/test_editor.py` verify text insertion, modification tracking, and all line operations work correctly through programmatic testing.
+**Tests**: `tests/test_editor.py` has `TestEditorBasics` and `TestLineOperations` covering the main functionality.
 
 ## Opening and Saving Files
 
-File I/O is handled through `load_file()` and `save_file()` methods on the `TextEditor` class. The implementation uses UTF-8 encoding for all files, ensuring compatibility with source code and text files containing international characters. Each editor tracks its associated file path and updates its modification state after successful saves.
+Files are saved/loaded with UTF-8 encoding. The editor shows a ● in the tab title when you have unsaved changes, and prompts you before closing modified files so you don't lose work.
 
-The `EditorTabWidget` class handles the file dialogs via `QFileDialog`, supporting both "Save" (Ctrl+S) and "Save As" (Ctrl+Shift+S) workflows. When opening a file that's already open in another tab, the editor intelligently switches to that existing tab instead of creating a duplicate, preventing confusion about which tab contains which file.
+One nice touch: if you try to open a file that's already open in another tab, it just switches to that tab instead of opening it twice. Empty "Untitled" tabs get reused when you open files too.
 
-Visual feedback is provided through tab titles with a ● (bullet) prefix for unsaved changes. Before closing any modified file, the user is prompted with a three-option dialog: Save, Discard, or Cancel. This prevents accidental data loss while allowing quick discard when desired.
+The architecture splits things cleanly—`TextEditor` does the actual file I/O, while `EditorTabWidget` handles the dialogs and UI stuff.
 
-The architecture cleanly separates concerns: the `TextEditor` class handles low-level file I/O and can work standalone, while the `EditorTabWidget` handles user-facing dialogs and tab management. This makes the editor components reusable and testable in isolation.
+**Tests**: `TestFileOperations` covers save/load, error handling, and edge cases.
 
-**Validation**: The `TestFileOperations` test class in `tests/test_editor.py` covers save/load round-trips, error handling for nonexistent files, and edge cases like saving without a specified path.
+## Tabs and Split Views
 
-## Multi-file Support with Tabs and Split Views
+This is where things get more interesting. You can have multiple files open in tabs (drag to reorder, Ctrl+Tab to cycle), and you can split the window horizontally or vertically to view files side-by-side.
 
-The editor supports sophisticated multi-file editing through a tab system with optional split views, enabling side-by-side or top-bottom comparisons and editing.
+The split system uses Qt's `QSplitter` with a tree structure, so you can nest splits in any direction. When you close the last tab in a split, it automatically cleans itself up. The tricky part was tracking which split is "active" for operations like save—I ended up using focus events and keeping an `_active_tabs` reference.
 
-### Tab Management
+Shortcuts: Ctrl+\\ to split right, Ctrl+Shift+\\ to split down, Ctrl+Shift+X to close a split.
 
-The `EditorTabWidget` class extends `QTabWidget` to manage multiple editor instances:
-
-- **Closable tabs**: Each tab has a close button (Ctrl+W); prompts to save unsaved changes
-- **Movable tabs**: Drag tabs to reorder them
-- **Tab navigation**: Ctrl+Tab and Ctrl+Shift+Tab cycle through tabs
-- **Smart file opening**: Reuses empty untitled tabs when opening files, avoids duplicate tabs for the same file
-- **Modification indicators**: Tab title shows ● prefix for unsaved files
-- **Empty tab handling**: Prevents creating empty tab widgets when closing the last tab
-
-The tab widget is designed to be self-contained—it manages its own lifecycle without requiring external coordination. Each tab contains an independent `TextEditor` instance with its own undo/redo stack and file state.
-
-### Split Views
-
-The `SplitContainer` class provides a powerful split-view system for viewing multiple files simultaneously. This was implemented using Qt's `QSplitter` with dynamic nesting to support arbitrary split layouts:
-
-- **Split horizontally** (Ctrl+\\): Create side-by-side editors
-- **Split vertically** (Ctrl+Shift+\\): Create top-and-bottom editors  
-- **Close split** (Ctrl+Shift+X): Remove the active split pane
-- **Navigate splits**: Ctrl+Alt+Left/Right to move focus between panes
-- **Nested splits**: Split panes can be further subdivided in either direction
-
-The implementation uses a tree structure where each split can contain either tab widgets or more splits. When a split pane's last tab is closed, the split automatically collapses and removes itself from the tree. The container automatically rebalances splitter sizes to give equal space to all panes.
-
-One interesting architectural challenge was managing focus and determining which split is "active" for operations like save or open. The solution tracks focus events on tab widgets and maintains an `_active_tabs` reference. Visual feedback could be added in the future to highlight the active split, but keyboard focus currently provides sufficient indication.
-
-**Validation**: Tab and split functionality is validated through manual testing with the running application. The underlying editor and file operations are validated by the automated test suite, ensuring each tab and split operates correctly.
+**Tests**: Manual testing for splits. The underlying editor tests cover the tab functionality.
 
 ## Find and Replace
 
-The `FindReplaceWidget` provides comprehensive in-file search and replace functionality with a clean, keyboard-friendly interface.
+Built a find/replace bar that sits at the bottom of the window. Has all the standard features: find next/previous (F3/Shift+F3), case-sensitive search, whole-word matching, replace single, and replace all. Shows a match counter and auto-populates with your current selection when you open it.
 
-### Features
+The implementation uses Qt's `QTextDocument.find()` with the appropriate flags. Replace-all uses edit blocks so it's a single undo operation. One thing I noticed: the match counter recalculates on every keystroke by scanning the whole document, which could be slow for huge files but gives nice instant feedback.
 
-- **Find next/previous**: Navigate through matches with F3/Shift+F3 or arrow buttons
-- **Replace single**: Replace current match and automatically advance to next match
-- **Replace all**: Replace all occurrences in the document in one atomic operation
-- **Search options**: Case-sensitive matching and whole-word matching
-- **Match counter**: Real-time display of total number of matches
-- **Wrap-around search**: Automatically wraps to beginning/end when reaching document boundaries
-- **Smart initialization**: Auto-populates search field with current selection when opened
+**Tests**: 12 tests in `tests/test_find_replace.py` covering search directions, wrap-around, case sensitivity, whole words, and replace operations.
 
-### Implementation Details
+## Architecture
 
-The find bar appears at the bottom of the main window and operates on the currently focused editor. The widget is shown/hidden on demand (Ctrl+F to open, Escape to close) and maintains its state between show/hide cycles, allowing users to quickly repeat previous searches.
+The code is split into modular pieces:
+- `TextEditor` - core editing widget
+- `EditorTabWidget` - manages tabs
+- `SplitContainer` - handles split views
+- `FindReplaceWidget` - search/replace
+- `MainWindow` - ties it all together
 
-Search uses Qt's `QTextDocument.find()` method with appropriate flags for case sensitivity and whole word matching. Replace operations handle edge cases like:
-- Verifying the current selection matches the search term before replacing (prevents replacing wrong text)
-- Handling case-insensitive matches correctly
-- Using edit blocks for replace-all to make it a single undo operation
+Everything communicates via Qt signals/slots, which keeps things loosely coupled.
 
-One interesting implementation detail: the match counter recalculates on every search text change by scanning the entire document. For very large files this could be slow, but it provides immediate feedback which improves the user experience. A future optimization would be to debounce the counter updates or cache results.
+## What I Built
 
-The find/replace bar integrates seamlessly with the split view system—it always operates on the currently active editor, and switching splits automatically redirects the find operations.
+For this assignment I picked two features from the list:
 
-**Validation**: The `TestFindFunctionality` and `TestReplaceFunctionality` test classes in `tests/test_find_replace.py` provide 12 comprehensive tests covering:
-- Basic search forward and backward
-- Wrap-around behavior at document boundaries  
-- Case-sensitive and case-insensitive searching
-- Whole-word matching with punctuation boundaries
-- Replace single occurrence
-- Replace all occurrences
-- Edge cases like empty strings and no matches
-
-## Keyboard Shortcuts
-
-The editor provides extensive keyboard shortcuts for efficient editing without reaching for the mouse. All shortcuts follow familiar conventions from popular editors like VS Code and Sublime Text.
-
-### File Operations
-| Action | Shortcut |
-|--------|----------|
-| New Tab | Ctrl+N |
-| Open File | Ctrl+O |
-| Save | Ctrl+S |
-| Save As | Ctrl+Shift+S |
-| Close Tab | Ctrl+W |
-| Close All Tabs | Ctrl+Shift+W |
-
-### Editing
-| Action | Shortcut |
-|--------|----------|
-| Undo | Ctrl+Z |
-| Redo | Ctrl+Shift+Z |
-| Cut | Ctrl+X |
-| Copy | Ctrl+C |
-| Paste | Ctrl+V |
-| Select All | Ctrl+A |
-| Select Word | Ctrl+D |
-| Select Line | Ctrl+L |
-| Duplicate Line | Ctrl+Shift+D |
-| Delete Line | Ctrl+Shift+K |
-| Move Line Up | Alt+Up |
-| Move Line Down | Alt+Down |
-
-### Search
-| Action | Shortcut |
-|--------|----------|
-| Find | Ctrl+F |
-| Replace | Ctrl+H |
-| Find Next | F3 |
-| Find Previous | Shift+F3 |
-| Go to Line | Ctrl+G |
-
-### View & Navigation
-| Action | Shortcut |
-|--------|----------|
-| Next Tab | Ctrl+Tab |
-| Previous Tab | Ctrl+Shift+Tab |
-| Split Right | Ctrl+\\ |
-| Split Down | Ctrl+Shift+\\ |
-| Close Split | Ctrl+Shift+X |
-| Focus Next Split | Ctrl+Alt+Right |
-| Focus Previous Split | Ctrl+Alt+Left |
-
-Shortcuts are registered through Qt's action system (`QAction` with `setShortcut`), ensuring they work consistently across the application. Menu items display their shortcuts, making them discoverable for new users.
-
----
-
-## Screenshots
-
-*(Add screenshots here showing: the main editor window, tabs with multiple files open, split views, and the find/replace bar)*
-
-## Architecture Summary
-
-The editor follows a modular architecture with clear separation of concerns:
-
-- **`TextEditor`**: Core editing widget with file I/O and text manipulation
-- **`EditorTabWidget`**: Tab management for multi-file editing  
-- **`SplitContainer`**: Split view system with dynamic layouts
-- **`FindReplaceWidget`**: Search and replace functionality
-- **`MainWindow`**: Top-level window with menu bar, keyboard shortcuts, and component integration
-
-This structure makes each component independently testable and reusable. Communication between components uses Qt's signal/slot mechanism, keeping coupling loose and making it easy to add new features.
-
-## Selected Features
-
-For this assignment, I implemented **two** of the required advanced features:
-
-1. **Multi-file support, tabs, and split views**: Full implementation including drag-to-reorder tabs, smart duplicate prevention, horizontal/vertical splits with arbitrary nesting, and automatic split cleanup.
-
-2. **Find and replace**: Complete in-file find and replace with case-sensitive matching, whole-word search, replace single/all operations, match counting, and wrap-around navigation.
-
-Both features are fully functional and well-integrated with the rest of the editor.
+1. **Multi-file support, tabs, and split views** - fully working with drag-to-reorder, nested splits, and smart duplicate handling
+2. **Find and replace** - complete with case-sensitive/whole-word options, replace all, and match counting
 
 ---
 
