@@ -7,11 +7,12 @@ from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QStatusBar,
     QMenuBar, QMenu, QMessageBox, QInputDialog
 )
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtGui import QAction, QKeySequence, QFont
 from PyQt6.QtCore import Qt
 
 from .split_container import SplitContainer
 from .find_replace import FindReplaceWidget
+from .markdown_preview import MarkdownPreview
 
 
 class MainWindow(QMainWindow):
@@ -35,8 +36,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # Create splitter for editor and markdown preview
+        from PyQt6.QtWidgets import QSplitter
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
         self.split_container = SplitContainer()
-        layout.addWidget(self.split_container)
+        self.main_splitter.addWidget(self.split_container)
+        
+        self.markdown_preview = MarkdownPreview()
+        # Show by default
+        self.main_splitter.addWidget(self.markdown_preview)
+        
+        # Set initial sizes (60% editor, 40% preview)
+        self.main_splitter.setSizes([600, 400])
+        
+        layout.addWidget(self.main_splitter)
         
         self.find_replace = FindReplaceWidget()
         layout.addWidget(self.find_replace)
@@ -85,6 +99,9 @@ class MainWindow(QMainWindow):
         view_menu = menubar.addMenu("&View")
         self._add_action(view_menu, "&Go to Line...", self._go_to_line, QKeySequence("Ctrl+G"))
         view_menu.addSeparator()
+        self.preview_action = self._add_action(view_menu, "&Markdown Preview", self._toggle_markdown_preview, QKeySequence("Ctrl+M"))
+        self.preview_action.setCheckable(True)
+        view_menu.addSeparator()
         self._add_action(view_menu, "Split &Right", self.split_container.split_horizontal, QKeySequence("Ctrl+\\"))
         self._add_action(view_menu, "Split &Down", self.split_container.split_vertical, QKeySequence("Ctrl+Shift+\\"))
         self._add_action(view_menu, "Close Split", self.split_container.close_split, QKeySequence("Ctrl+Shift+X"))
@@ -117,7 +134,18 @@ class MainWindow(QMainWindow):
         """Connect signals."""
         self.split_container.current_editor_changed.connect(self._on_editor_changed)
         self.split_container.active_tabs_changed.connect(self._on_active_tabs_changed)
+        self.split_container.file_loaded.connect(self._on_file_loaded)
         self.find_replace.closed.connect(self._on_find_closed)
+        # Set initial preview state
+        self.preview_action.setChecked(True)
+        # Update preview for initial editor with delay
+        from PyQt6.QtCore import QTimer
+        def update_initial():
+            editor = self.split_container.current_editor()
+            if editor:
+                self.markdown_preview.set_editor(editor)
+                self._update_markdown_preview()
+        QTimer.singleShot(100, update_initial)
     
     def _on_active_tabs_changed(self, tabs):
         """Handle active tab widget change."""
@@ -125,18 +153,42 @@ class MainWindow(QMainWindow):
             editor = tabs.current_editor()
             if editor:
                 self.find_replace.set_editor(editor)
+                self.markdown_preview.set_editor(editor)
+                # Use QTimer to ensure preview updates after UI is ready
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(10, self._update_markdown_preview)
+    
+    def _on_file_loaded(self):
+        """Handle file loaded signal - force preview refresh."""
+        from PyQt6.QtCore import QTimer
+        # Force a preview update when a file is loaded
+        def refresh_preview():
+            editor = self.split_container.current_editor()
+            if editor:
+                self.markdown_preview.set_editor(editor)
+                self._update_markdown_preview()
+        QTimer.singleShot(100, refresh_preview)
     
     def _on_editor_changed(self, editor):
         """Handle editor change."""
         if editor:
             self.find_replace.set_editor(editor)
+            self.markdown_preview.set_editor(editor)
             try:
                 editor.cursor_position_changed.disconnect(self._update_cursor_position)
             except:
                 pass
+            try:
+                editor.textChanged.disconnect(self._update_markdown_preview)
+            except:
+                pass
             editor.cursor_position_changed.connect(self._update_cursor_position)
+            editor.textChanged.connect(self._update_markdown_preview)
             self._update_cursor_position(1, 1)
             self._update_window_title()
+            # Use QTimer to ensure preview updates after UI is ready
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(10, self._update_markdown_preview)
     
     def _update_cursor_position(self, line: int, col: int):
         """Update status bar with cursor position."""
@@ -210,6 +262,25 @@ class MainWindow(QMainWindow):
         if editor:
             editor.move_line_down()
     
+    def _toggle_markdown_preview(self):
+        """Toggle markdown preview visibility."""
+        if self.markdown_preview.isVisible():
+            self.markdown_preview.hide()
+            self.preview_action.setChecked(False)
+        else:
+            self.markdown_preview.show()
+            self.preview_action.setChecked(True)
+            # Force update after showing with a small delay
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(50, self._update_markdown_preview)
+    
+    def _update_markdown_preview(self):
+        """Update markdown preview with current editor content."""
+        editor = self.split_container.current_editor()
+        if editor:
+            # Always update if we have an editor - visibility is managed separately
+            self.markdown_preview.update_preview(editor.toPlainText())
+    
     def _show_find(self):
         """Show the find/replace bar."""
         self.find_replace.set_editor(self.split_container.current_editor())
@@ -258,6 +329,7 @@ class MainWindow(QMainWindow):
             "• Multi-file editing with tabs\n"
             "• Split views (horizontal and vertical)\n"
             "• Find and replace\n"
+            "• Markdown preview\n"
             "• Line manipulation shortcuts\n"
             "• Cursor position tracking"
         )

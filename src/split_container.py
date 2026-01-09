@@ -11,6 +11,7 @@ class SplitContainer(QWidget):
     
     current_editor_changed = pyqtSignal(object)
     active_tabs_changed = pyqtSignal(object)
+    file_loaded = pyqtSignal()  # Signal when a file is loaded
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -36,6 +37,7 @@ class SplitContainer(QWidget):
         tabs = EditorTabWidget()
         tabs.current_editor_changed.connect(self._on_editor_changed)
         tabs.all_tabs_closed.connect(lambda: self._on_all_tabs_closed(tabs))
+        tabs.file_loaded.connect(self.file_loaded.emit)  # Forward file loaded signal
         
         tabs.focusInEvent = lambda e, t=tabs: self._on_tabs_focused(t, e)
         

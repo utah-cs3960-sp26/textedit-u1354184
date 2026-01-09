@@ -101,6 +101,13 @@ class FindReplaceWidget(QWidget):
         """Handle search text changes."""
         self._last_match_position = -1
         self._update_match_count()
+        # Automatically find first match when text changes
+        if text:
+            # Move cursor to start of document to find first occurrence
+            if self._editor:
+                cursor = QTextCursor(self._editor.document())
+                self._editor.setTextCursor(cursor)
+                self.find_next()
     
     def _get_find_flags(self):
         """Get the find flags based on options."""
