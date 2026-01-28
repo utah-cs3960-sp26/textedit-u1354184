@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 
 from .split_container import SplitContainer
 from .find_replace import FindReplaceWidget
+from .multi_file_find import MultiFileFindDialog
 
 
 class MainWindow(QMainWindow):
@@ -81,6 +82,8 @@ class MainWindow(QMainWindow):
         self._add_action(search_menu, "Find &Next", self._find_next, QKeySequence("F3"))
         self._add_action(search_menu, "Find &Previous", self._find_previous, QKeySequence("Shift+F3"))
         self._add_action(search_menu, "&Replace...", self._show_find, QKeySequence.StandardKey.Replace)
+        search_menu.addSeparator()
+        self._add_action(search_menu, "Find in &Files...", self._show_multi_file_find, QKeySequence("Ctrl+Shift+F"))
         
         view_menu = menubar.addMenu("&View")
         self._add_action(view_menu, "&Go to Line...", self._go_to_line, QKeySequence("Ctrl+G"))
@@ -258,9 +261,15 @@ class MainWindow(QMainWindow):
             "• Multi-file editing with tabs\n"
             "• Split views (horizontal and vertical)\n"
             "• Find and replace\n"
+            "• Multi-file find and replace\n"
             "• Line manipulation shortcuts\n"
             "• Cursor position tracking"
         )
+    
+    def _show_multi_file_find(self):
+        """Show the multi-file find dialog."""
+        dialog = MultiFileFindDialog(self.split_container, self)
+        dialog.exec()
     
     def closeEvent(self, event):
         """Handle window close."""

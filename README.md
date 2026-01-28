@@ -1,6 +1,120 @@
-# R1
+# TextEdit
 
 ![TextEdit Screenshot](images/image.png)
+
+A cross-platform text editor built with PyQt6 featuring multi-file tabs, split views, and find/replace functionality.
+
+## Getting Started
+
+### Prerequisites
+
+- **Python 3.10 or higher** (tested with Python 3.14)
+- **pip** (Python package installer)
+- **Qt platform dependencies** (usually pre-installed on macOS/Windows, may require installation on Linux)
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd textedit_u1351484
+   ```
+
+2. **Create a virtual environment:**
+   ```bash
+   python3 -m venv .venv
+   ```
+
+3. **Activate the virtual environment:**
+   
+   On macOS/Linux:
+   ```bash
+   source .venv/bin/activate
+   ```
+   
+   On Windows:
+   ```bash
+   .venv\Scripts\activate
+   ```
+
+4. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Running the Application
+
+Once dependencies are installed, run the text editor with:
+
+```bash
+python main.py
+```
+
+Or using the module:
+
+```bash
+python -m src.app
+```
+
+The application window will open with a blank editor tab ready to use.
+
+### Running Tests
+
+To run the test suite:
+
+```bash
+pytest
+```
+
+To run specific test files:
+
+```bash
+pytest tests/test_editor.py
+pytest tests/test_find_replace.py
+pytest tests/test_multi_file_find.py
+```
+
+To run with verbose output:
+
+```bash
+pytest -v
+```
+
+**Note:** GUI tests may fail in headless environments (CI servers without display). This is a known limitation with PyQt6 testing.
+
+### Platform-Specific Notes
+
+**macOS:**
+- No additional setup required
+- Uses native Cocoa platform integration
+
+**Linux:**
+- May require installing Qt platform plugins:
+  ```bash
+  sudo apt-get install libxcb-xinerama0  # Ubuntu/Debian
+  ```
+
+**Windows:**
+- No additional setup required
+- Uses native Windows integration
+
+### Troubleshooting
+
+**"No module named PyQt6":**
+- Ensure virtual environment is activated
+- Run `pip install -r requirements.txt` again
+
+**"command not found: python":**
+- Try `python3` instead of `python`
+- Ensure Python 3.10+ is installed
+
+**Application won't start:**
+- Check that you have a display/GUI environment
+- Try running a simple PyQt6 test: `python -c "from PyQt6.QtWidgets import QApplication; print('OK')"`
+
+---
+
+# R1
 
 ## Core Editing
 
@@ -62,6 +176,63 @@ Built a find/replace bar that sits at the bottom of the window. Has all the stan
 The implementation uses Qt's `QTextDocument.find()` with the appropriate flags. Replace-all uses edit blocks so it's a single undo operation. One thing I noticed: the match counter recalculates on every keystroke by scanning the whole document, which could be slow for huge files but gives nice instant feedback.
 
 **Tests**: 12 tests in `tests/test_find_replace.py` covering search directions, wrap-around, case sensitivity, whole words, and replace operations.
+
+## Quick Usage Guide
+
+### Basic Operations
+
+**Opening Files:**
+- File → Open (Ctrl+O)
+- Drag and drop files onto the window
+- Command line: `python main.py /path/to/file.txt`
+
+**Saving Files:**
+- File → Save (Ctrl+S) - save current file
+- File → Save As (Ctrl+Shift+S) - save with new name
+
+**Creating Tabs:**
+- File → New (Ctrl+N) - new tab
+- File → Open (Ctrl+O) - open file in new tab
+- Ctrl+W - close current tab
+- Ctrl+Tab - switch to next tab
+
+**Split Views:**
+- View → Split Right (Ctrl+\\) - split horizontally
+- View → Split Down (Ctrl+Shift+\\) - split vertically  
+- View → Close Split (Ctrl+Shift+X) - close current split
+- Ctrl+Alt+Left/Right - navigate between splits
+- Drag the gray split handles to resize panes
+
+**Text Editing:**
+- Ctrl+Z / Ctrl+Shift+Z - undo/redo
+- Ctrl+X / Ctrl+C / Ctrl+V - cut/copy/paste
+- Ctrl+D - select word
+- Ctrl+L - select line
+- Ctrl+A - select all
+
+**Line Operations:**
+- Ctrl+Shift+D - duplicate current line
+- Ctrl+Shift+K - delete current line
+- Alt+Up / Alt+Down - move line up/down
+
+**Find and Replace:**
+- Ctrl+F - open find/replace bar
+- F3 / Shift+F3 - find next/previous
+- Type search term and press Enter
+- Enable case-sensitive or whole-word matching
+- Use Replace or Replace All buttons
+
+**Navigation:**
+- Ctrl+G - go to line number
+- Click line/column indicator in status bar
+
+### Tips
+
+- The editor auto-saves modification state (● indicator in tab)
+- Closing modified files prompts to save
+- Opening an already-open file switches to that tab
+- Empty "Untitled" tabs are reused when opening files
+- All keyboard shortcuts are visible in menus
 
 ## Architecture
 
