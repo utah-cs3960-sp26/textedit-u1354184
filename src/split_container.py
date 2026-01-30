@@ -281,3 +281,8 @@ class SplitContainer(QWidget):
         """Switch to previous tab in active tab widget."""
         if self._active_tabs:
             self._active_tabs.previous_tab()
+    
+    def open_file_path(self, file_path: str):
+        """Open a file by its full path."""
+        if self._active_tabs:
+            return self._active_tabs.open_file(file_path)

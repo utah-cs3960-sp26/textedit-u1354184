@@ -251,3 +251,9 @@ For this assignment I picked two features from the list:
 
 1. **Multi-file support, tabs, and split views** - fully working with drag-to-reorder, nested splits, and smart duplicate handling
 2. **Find and replace** - complete with case-sensitive/whole-word options, replace all, and match counting
+
+## What Erik Hilton added
+
+For Assignment 2 I added a file explorer tree:
+
+1. **FileTree Explorer** - a fully operational file tree that mimics the user's file system. The editor opens compatable files and is compatible with find/replace and split view functionality. A file_tree.py file has been added in the src folder. Pycache has been updated. A test file called test_filetree.py has been added to the test folder with 26 tests that all pass.
