@@ -4,15 +4,16 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QVBoxLayout, QWidget, QStatusBar,
-    QMenuBar, QMenu, QMessageBox, QInputDialog
+    QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QStatusBar,
+    QMenuBar, QMenu, QMessageBox, QInputDialog, QSplitter
 )
-from PyQt6.QtGui import QAction, QKeySequence, QFont
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QKeySequence, QFont
 
 from .split_container import SplitContainer
 from .find_replace import FindReplaceWidget
 from .multi_file_find import MultiFileFindDialog
+from .file_tree import FileTreeWidget
 
 
 class MainWindow(QMainWindow):
@@ -36,8 +37,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # Horizontal splitter for file tree and editor
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # File tree widget (initially hidden)
+        self.file_tree = FileTreeWidget()
+        self.file_tree.file_selected.connect(self._on_file_selected)
+        self.file_tree.setMaximumWidth(300)
+        self.file_tree.hide()
+        self.main_splitter.addWidget(self.file_tree)
+        
         self.split_container = SplitContainer()
-        layout.addWidget(self.split_container)
+        self.main_splitter.addWidget(self.split_container)
+        
+        self.main_splitter.setSizes([0, 1000])
+        layout.addWidget(self.main_splitter)
         
         self.find_replace = FindReplaceWidget()
         layout.addWidget(self.find_replace)
@@ -97,6 +111,10 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         self._add_action(view_menu, "Next Tab", self.split_container.next_tab, QKeySequence("Ctrl+Tab"))
         self._add_action(view_menu, "Previous Tab", self.split_container.previous_tab, QKeySequence("Ctrl+Shift+Tab"))
+        
+        filetree_menu = menubar.addMenu("&FileTree")
+        self._add_action(filetree_menu, "&Open FileTree", self._open_filetree)
+        self._add_action(filetree_menu, "&Close FileTree", self._close_filetree)
         
         help_menu = menubar.addMenu("&Help")
         self._add_action(help_menu, "&About", self._show_about)
@@ -270,6 +288,20 @@ class MainWindow(QMainWindow):
         """Show the multi-file find dialog."""
         dialog = MultiFileFindDialog(self.split_container, self)
         dialog.exec()
+    
+    def _open_filetree(self):
+        """Open the file tree."""
+        self.file_tree.show()
+        self.main_splitter.setSizes([250, 1000])
+    
+    def _close_filetree(self):
+        """Close the file tree."""
+        self.file_tree.hide()
+        self.main_splitter.setSizes([0, 1000])
+    
+    def _on_file_selected(self, file_path: str):
+        """Handle file selection from file tree."""
+        self.split_container.open_file_path(file_path)
     
     def closeEvent(self, event):
         """Handle window close."""
