@@ -1,8 +1,9 @@
 """Tests for multi-file find and replace functionality."""
 
 import pytest
+from unittest.mock import patch, MagicMock
 from pathlib import Path
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from src.multi_file_find import MultiFileFindDialog, SearchResult
 from src.split_container import SplitContainer
 from src.main_window import MainWindow
@@ -206,6 +207,367 @@ def test_replace_with_empty_text(dialog):
     """Test replacement with empty string (deletion)."""
     text = "Hello world"
     results = [SearchResult("test.txt", 1, "Hello world", 6, 11)]
-    
+
     new_text = dialog._replace_in_text(text, results, "world", "")
     assert new_text == "Hello "
+
+
+def test_find_all_no_text(dialog):
+    """Test find all with no search text."""
+    dialog.find_input.setText("")
+    dialog.find_all()
+    assert dialog.status_label.text() == "Please enter search text"
+
+
+def test_find_all_no_files(dialog):
+    """Test find all with no files to search."""
+    dialog.directory_radio.setChecked(True)
+    dialog.directory_input.setText("/nonexistent/directory")
+    dialog.find_input.setText("test")
+    dialog.find_all()
+    assert dialog.status_label.text() == "No files to search"
+
+
+def test_find_all_no_matches(dialog, main_window):
+    """Test find all with no matches."""
+    editor = main_window.split_container.current_editor()
+    editor.setPlainText("Hello world")
+
+    dialog.find_input.setText("xyz")
+    dialog.find_all()
+    assert "No matches found" in dialog.status_label.text()
+
+
+def test_find_all_with_matches(dialog, main_window):
+    """Test find all with matches."""
+    editor = main_window.split_container.current_editor()
+    editor.setPlainText("test test test")
+
+    dialog.find_input.setText("test")
+    dialog.find_all()
+    assert "3 matches" in dialog.status_label.text()
+
+
+def test_scope_change_enables_browse(dialog):
+    """Test that scope change enables browse button."""
+    dialog.directory_radio.setChecked(True)
+    assert dialog.directory_input.isEnabled()
+    assert dialog.browse_btn.isEnabled()
+
+    dialog.open_tabs_radio.setChecked(True)
+    assert not dialog.directory_input.isEnabled()
+    assert not dialog.browse_btn.isEnabled()
+
+
+def test_display_results(dialog, main_window):
+    """Test results are displayed in tree."""
+    editor = main_window.split_container.current_editor()
+    editor.setPlainText("test line")
+
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    assert dialog.results_tree.topLevelItemCount() > 0
+
+
+def test_replace_selected_no_selection(dialog):
+    """Test replace selected with no selection."""
+    dialog.replace_selected()
+    assert "No results selected" in dialog.status_label.text()
+
+
+def test_replace_all_no_results(dialog):
+    """Test replace all with no results."""
+    dialog.results = []
+    dialog.replace_all()
+    assert "No results to replace" in dialog.status_label.text()
+
+
+def test_get_directory_files_nonexistent(dialog):
+    """Test get_directory_files with nonexistent directory."""
+    dialog.directory_input.setText("/nonexistent/path")
+    files = dialog._get_directory_files()
+    assert files == []
+
+
+def test_get_directory_files_empty(dialog):
+    """Test get_directory_files with empty directory input."""
+    dialog.directory_input.setText("")
+    files = dialog._get_directory_files()
+    assert files == []
+
+
+def test_find_editor_for_file_not_found(dialog, main_window):
+    """Test find_editor_for_file when file is not open."""
+    editor = dialog._find_editor_for_file("/nonexistent/file.txt")
+    assert editor is None
+
+
+def test_replace_case_insensitive(dialog):
+    """Test case insensitive replacement."""
+    text = "Hello World"
+    results = [SearchResult("test.txt", 1, "Hello World", 0, 5)]
+
+    dialog.case_sensitive_cb.setChecked(False)
+    new_text = dialog._replace_in_text(text, results, "hello", "Hi")
+    assert new_text == "Hi World"
+
+
+def test_replace_case_sensitive(dialog):
+    """Test case sensitive replacement."""
+    text = "Hello World"
+    results = [SearchResult("test.txt", 1, "Hello World", 0, 5)]
+
+    dialog.case_sensitive_cb.setChecked(True)
+    new_text = dialog._replace_in_text(text, results, "Hello", "Hi")
+    assert new_text == "Hi World"
+
+
+def test_perform_replacements_in_editor(dialog, main_window, tmp_path):
+    """Test performing replacements in open editor."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    editor = main_window.split_container.open_file(str(test_file))
+    results = [SearchResult(str(test_file), 1, "test content", 0, 4)]
+
+    dialog.case_sensitive_cb.setChecked(False)
+    count = dialog._perform_replacements({str(test_file): results}, "test", "TEST")
+    assert count == 1
+    assert "TEST" in editor.toPlainText()
+
+
+def test_get_open_tabs_multiple(dialog, main_window):
+    """Test getting multiple open tabs."""
+    main_window.split_container.new_tab()
+    main_window.split_container.new_tab()
+
+    files = dialog._get_open_tabs()
+    assert len(files) >= 2
+
+
+def test_get_directory_files_with_files(dialog, tmp_path):
+    """Test getting files from a directory with text files."""
+    # Create some test files
+    (tmp_path / "test.txt").write_text("Test content")
+    (tmp_path / "test.py").write_text("print('hello')")
+    (tmp_path / "test.md").write_text("# Markdown")
+
+    dialog.directory_input.setText(str(tmp_path))
+    files = dialog._get_directory_files()
+    assert len(files) >= 3
+
+
+def test_find_all_in_directory(dialog, tmp_path):
+    """Test finding in directory files."""
+    # Create test file
+    (tmp_path / "test.txt").write_text("test content here")
+
+    dialog.directory_radio.setChecked(True)
+    dialog.directory_input.setText(str(tmp_path))
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    assert "1 match" in dialog.status_label.text()
+
+
+def test_result_double_click_file_open(dialog, main_window, tmp_path):
+    """Test double-clicking a result opens the file."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content\nline 2")
+
+    # Open the file first
+    main_window.split_container.open_file(str(test_file))
+
+    # Search for content
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    # Get a result item
+    if dialog.results_tree.topLevelItemCount() > 0:
+        file_item = dialog.results_tree.topLevelItem(0)
+        if file_item.childCount() > 0:
+            match_item = file_item.child(0)
+            dialog._on_result_double_clicked(match_item, 0)
+
+
+def test_result_double_click_file_not_open(dialog, main_window, tmp_path):
+    """Test double-clicking result when file is not open."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    # Search in directory
+    dialog.directory_radio.setChecked(True)
+    dialog.directory_input.setText(str(tmp_path))
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    # Get a result item and click it
+    if dialog.results_tree.topLevelItemCount() > 0:
+        file_item = dialog.results_tree.topLevelItem(0)
+        if file_item.childCount() > 0:
+            match_item = file_item.child(0)
+            dialog._on_result_double_clicked(match_item, 0)
+
+
+def test_result_double_click_non_result_item(dialog, main_window):
+    """Test double-clicking non-result item does nothing."""
+    from PyQt6.QtWidgets import QTreeWidgetItem
+
+    # Create a dummy item without result data
+    item = QTreeWidgetItem()
+    dialog._on_result_double_clicked(item, 0)
+    # Should not crash
+
+
+def test_find_single_match_message(dialog, main_window):
+    """Test status message for single match."""
+    editor = main_window.split_container.current_editor()
+    editor.setPlainText("unique text")
+
+    dialog.find_input.setText("unique")
+    dialog.find_all()
+
+    assert "1 match" in dialog.status_label.text()
+    assert "1 file" in dialog.status_label.text()
+
+
+def test_browse_directory_dialog(dialog, tmp_path):
+    """Test browse directory dialog."""
+    with patch('src.multi_file_find.QFileDialog.getExistingDirectory') as mock_dialog:
+        mock_dialog.return_value = str(tmp_path)
+        dialog._browse_directory()
+        assert dialog.directory_input.text() == str(tmp_path)
+
+
+def test_browse_directory_cancelled(dialog):
+    """Test browse directory dialog cancelled."""
+    dialog.directory_input.setText("/original/path")
+    with patch('src.multi_file_find.QFileDialog.getExistingDirectory') as mock_dialog:
+        mock_dialog.return_value = ""
+        dialog._browse_directory()
+        # Should keep original path
+        assert dialog.directory_input.text() == "/original/path"
+
+
+def test_replace_all_with_confirmation(dialog, main_window, tmp_path):
+    """Test replace all with confirmation dialog."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test test test")
+
+    editor = main_window.split_container.open_file(str(test_file))
+
+    dialog.find_input.setText("test")
+    dialog.replace_input.setText("TEST")
+    dialog.find_all()
+
+    with patch('src.multi_file_find.QMessageBox.question') as mock_msg:
+        mock_msg.return_value = QMessageBox.StandardButton.Yes
+        dialog.replace_all()
+        assert "TEST" in editor.toPlainText()
+
+
+def test_replace_all_cancelled(dialog, main_window, tmp_path):
+    """Test replace all cancelled."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test test test")
+
+    editor = main_window.split_container.open_file(str(test_file))
+
+    dialog.find_input.setText("test")
+    dialog.replace_input.setText("TEST")
+    dialog.find_all()
+
+    with patch('src.multi_file_find.QMessageBox.question') as mock_msg:
+        mock_msg.return_value = QMessageBox.StandardButton.No
+        dialog.replace_all()
+        # Should not be replaced
+        assert "test" in editor.toPlainText()
+
+
+def test_replace_selected_with_results(dialog, main_window, tmp_path):
+    """Test replace selected items."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content here")
+
+    editor = main_window.split_container.open_file(str(test_file))
+
+    dialog.find_input.setText("test")
+    dialog.replace_input.setText("TEST")
+    dialog.find_all()
+
+    # Select an item
+    if dialog.results_tree.topLevelItemCount() > 0:
+        file_item = dialog.results_tree.topLevelItem(0)
+        if file_item.childCount() > 0:
+            match_item = file_item.child(0)
+            match_item.setSelected(True)
+
+            dialog.replace_selected()
+            assert "TEST" in editor.toPlainText()
+
+
+def test_perform_replacements_in_file(dialog, tmp_path):
+    """Test performing replacements in file on disk."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    results = [SearchResult(str(test_file), 1, "test content", 0, 4)]
+    dialog.case_sensitive_cb.setChecked(False)
+
+    count = dialog._perform_replacements({str(test_file): results}, "test", "TEST")
+    assert count == 1
+    assert test_file.read_text() == "TEST content"
+
+
+def test_perform_replacements_file_error(dialog, tmp_path):
+    """Test replacement error handling."""
+    test_file = tmp_path / "readonly.txt"
+    test_file.write_text("test content")
+
+    results = [SearchResult(str(test_file), 1, "test content", 0, 4)]
+
+    # Make file read-only
+    test_file.chmod(0o444)
+
+    with patch('src.multi_file_find.QMessageBox.warning') as mock_warn:
+        try:
+            dialog._perform_replacements({str(test_file): results}, "test", "TEST")
+        finally:
+            test_file.chmod(0o644)  # Restore permissions
+
+
+def test_display_results_with_path(dialog, main_window, tmp_path):
+    """Test display results with actual file path."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    dialog.directory_radio.setChecked(True)
+    dialog.directory_input.setText(str(tmp_path))
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    # Check that results are displayed
+    assert dialog.results_tree.topLevelItemCount() > 0
+
+
+def test_on_result_double_click_opens_file(dialog, main_window, tmp_path):
+    """Test double-clicking result opens and navigates to file."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("line 1\ntest content\nline 3")
+
+    dialog.directory_radio.setChecked(True)
+    dialog.directory_input.setText(str(tmp_path))
+    dialog.find_input.setText("test")
+    dialog.find_all()
+
+    # Get result item and double-click
+    if dialog.results_tree.topLevelItemCount() > 0:
+        file_item = dialog.results_tree.topLevelItem(0)
+        if file_item.childCount() > 0:
+            match_item = file_item.child(0)
+            dialog._on_result_double_clicked(match_item, 0)
+
+            # File should be opened
+            editor = main_window.split_container.current_editor()
+            assert "test content" in editor.toPlainText()
