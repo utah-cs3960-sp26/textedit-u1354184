@@ -489,3 +489,208 @@ class TestEmptySplitterCleanup:
         # Should have fewer tabs now
         remaining = len(split_container._get_all_tab_widgets())
         assert remaining < initial_tab_count
+
+
+class TestLiveSyncBetweenEditors:
+    """Test live content synchronization between editors showing the same file."""
+
+    def test_open_same_file_in_split_creates_sync(self, split_container, tmp_path):
+        """Test opening the same file in different splits sets up sync."""
+        test_file = tmp_path / "sync_test.txt"
+        test_file.write_text("Initial content")
+
+        # Open file in first pane
+        editor1 = split_container.open_file_path(str(test_file))
+        assert editor1 is not None
+
+        # Create split and open same file
+        split_container.split_horizontal()
+        editor2 = split_container.open_file_path(str(test_file))
+
+        # Both should have same content
+        assert editor1.toPlainText() == "Initial content"
+        assert editor2.toPlainText() == "Initial content"
+
+        # Should be registered for sync
+        file_path = str(test_file)
+        assert file_path in split_container._file_syncs
+        assert len(split_container._file_syncs[file_path]) == 2
+
+    def test_open_file_with_dialog_cancelled(self, split_container):
+        """Test open_file when dialog is cancelled returns None."""
+        with patch('src.split_container.QFileDialog.getOpenFileName') as mock_dialog:
+            mock_dialog.return_value = ("", "")
+            result = split_container.open_file()
+            assert result is None
+
+    def test_open_file_with_dialog_success(self, split_container, tmp_path):
+        """Test open_file with dialog selecting a file."""
+        test_file = tmp_path / "dialog_test.txt"
+        test_file.write_text("Dialog content")
+
+        with patch('src.split_container.QFileDialog.getOpenFileName') as mock_dialog:
+            mock_dialog.return_value = (str(test_file), "All Files (*)")
+            result = split_container.open_file()
+            assert result is not None
+            assert result.toPlainText() == "Dialog content"
+
+    def test_open_file_existing_in_same_pane(self, split_container, tmp_path):
+        """Test opening already open file in the same pane switches to it."""
+        test_file = tmp_path / "same_pane.txt"
+        test_file.write_text("Same pane content")
+
+        # Open file
+        editor1 = split_container.open_file_path(str(test_file))
+
+        # Open another file to change current tab
+        split_container.new_tab()
+
+        # Open the same file again in same pane
+        editor2 = split_container.open_file(str(test_file))
+
+        # Should return the same editor
+        assert editor1 is editor2
+
+    def test_editing_synced_editor_updates_other(self, split_container, tmp_path):
+        """Test that editing one synced editor updates the other."""
+        test_file = tmp_path / "sync_edit_test.txt"
+        test_file.write_text("Original text")
+
+        # Open file in first pane
+        editor1 = split_container.open_file_path(str(test_file))
+
+        # Create split and open same file
+        split_container.split_horizontal()
+        editor2 = split_container.open_file_path(str(test_file))
+
+        # Edit editor1
+        cursor = editor1.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        editor1.setTextCursor(cursor)
+        editor1.insertPlainText(" - added")
+
+        # Editor2 should have the changes
+        # Note: The sync happens via document signals, give it a moment to process
+        import time
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Both should have updated content
+        assert "added" in editor1.toPlainText()
+        assert "added" in editor2.toPlainText()
+
+    def test_replay_edit_skips_self(self, split_container, tmp_path):
+        """Test that replay_edit doesn't create infinite loop by skipping source."""
+        test_file = tmp_path / "no_loop_test.txt"
+        test_file.write_text("Test content")
+
+        editor1 = split_container.open_file_path(str(test_file))
+        split_container.split_horizontal()
+        editor2 = split_container.open_file_path(str(test_file))
+
+        # Multiple edits should not cause issues
+        for i in range(3):
+            cursor = editor1.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            editor1.setTextCursor(cursor)
+            editor1.insertPlainText(f"{i}")
+
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Both should have all updates
+        assert editor1.toPlainText() == editor2.toPlainText()
+
+    def test_replay_edit_handles_deletion(self, split_container, tmp_path):
+        """Test that sync handles text deletion properly."""
+        test_file = tmp_path / "delete_sync.txt"
+        test_file.write_text("ABCDEF")
+
+        editor1 = split_container.open_file_path(str(test_file))
+        split_container.split_horizontal()
+        editor2 = split_container.open_file_path(str(test_file))
+
+        # Select and delete some text from editor1
+        cursor = editor1.textCursor()
+        cursor.setPosition(2)
+        cursor.setPosition(4, cursor.MoveMode.KeepAnchor)  # Select "CD"
+        cursor.removeSelectedText()
+
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Both should reflect the deletion
+        assert editor1.toPlainText() == "ABEF"
+        assert editor2.toPlainText() == "ABEF"
+
+    def test_register_sync_only_once(self, split_container, tmp_path):
+        """Test that an editor is only registered once for sync."""
+        test_file = tmp_path / "register_once.txt"
+        test_file.write_text("Test")
+
+        editor = split_container.open_file_path(str(test_file))
+        file_path = str(test_file)
+
+        # Manually try to register the same editor again
+        split_container._register_sync(file_path, editor)
+        split_container._register_sync(file_path, editor)
+
+        # Should only be in the list once
+        assert split_container._file_syncs[file_path].count(editor) == 1
+
+    def test_find_editor_for_file(self, split_container, tmp_path):
+        """Test finding an editor for a specific file path."""
+        test_file = tmp_path / "find_editor.txt"
+        test_file.write_text("Content")
+
+        editor = split_container.open_file_path(str(test_file))
+
+        found = split_container.find_editor_for_file(str(test_file))
+        assert found is editor
+
+    def test_find_editor_for_file_not_found(self, split_container):
+        """Test find_editor_for_file returns None when file not open."""
+        result = split_container.find_editor_for_file("/nonexistent/file.txt")
+        assert result is None
+
+    def test_replay_edit_with_single_editor(self, split_container, tmp_path):
+        """Test _replay_edit returns early when only one editor in sync group."""
+        test_file = tmp_path / "single.txt"
+        test_file.write_text("Single editor content")
+
+        editor = split_container.open_file_path(str(test_file))
+        file_path = str(test_file)
+
+        # Manually register sync for single editor
+        split_container._register_sync(file_path, editor)
+
+        # Edit should not cause issues - group has only 1 editor
+        cursor = editor.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        editor.setTextCursor(cursor)
+        editor.insertPlainText("!")
+
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        assert "Single editor content!" in editor.toPlainText()
+
+    def test_open_file_existing_in_other_pane_via_open_file(self, split_container, tmp_path):
+        """Test open_file method when file is open in another pane."""
+        test_file = tmp_path / "cross_pane.txt"
+        test_file.write_text("Cross pane content")
+
+        # Open file in first pane
+        editor1 = split_container.open_file_path(str(test_file))
+
+        # Create split
+        split_container.split_horizontal()
+
+        # Use open_file (not open_file_path) with the path
+        editor2 = split_container.open_file(str(test_file))
+
+        assert editor2 is not None
+        assert editor2.toPlainText() == "Cross pane content"
+        # Should have synced editors
+        file_path = str(test_file)
+        assert file_path in split_container._file_syncs

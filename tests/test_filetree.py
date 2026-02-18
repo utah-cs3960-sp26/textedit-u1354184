@@ -3,7 +3,9 @@
 import pytest
 import tempfile
 from pathlib import Path
-from PyQt6.QtWidgets import QApplication
+from unittest.mock import patch, MagicMock
+from PyQt6.QtWidgets import QApplication, QTreeWidgetItem
+from PyQt6.QtCore import Qt
 
 from src.file_tree import FileTreeWidget
 from src.editor import TextEditor
@@ -462,3 +464,83 @@ class TestFileTreeAdvanced:
             items.append(child)
             items.extend(TestFileTreeAdvanced._get_child_items(child))
         return items
+
+
+class TestFileTreeEdgeCases:
+    """Test edge cases for file tree coverage."""
+
+    def test_permission_error_handling(self, app, temp_dir):
+        """Test that PermissionError is handled gracefully in _populate_tree."""
+        widget = FileTreeWidget()
+
+        # Mock iterdir to raise PermissionError
+        with patch.object(Path, 'iterdir', side_effect=PermissionError("Access denied")):
+            # This should not raise an exception
+            widget._populate_tree(None, temp_dir)
+
+        # Tree should be empty or unchanged
+        widget.deleteLater()
+
+    def test_on_item_expanded_no_path_data(self, file_tree):
+        """Test _on_item_expanded with item that has no path data."""
+        # Create an item with no user data
+        item = QTreeWidgetItem()
+        item.setText(0, "No Path Item")
+        # Don't set any data
+
+        # Should return early without error
+        file_tree._on_item_expanded(item)
+
+    def test_on_item_expanded_with_file_path(self, file_tree, temp_dir):
+        """Test _on_item_expanded when item points to a file, not a directory."""
+        # Create an item that points to a file
+        item = QTreeWidgetItem()
+        item.setText(0, "File Item")
+        item.setData(0, Qt.ItemDataRole.UserRole, str(temp_dir / "script.py"))
+
+        # Should return early without error (file is not a directory)
+        file_tree._on_item_expanded(item)
+
+    def test_on_item_double_clicked_no_path_data(self, file_tree):
+        """Test _on_item_double_clicked with item that has no path data."""
+        signal_received = []
+        file_tree.file_selected.connect(lambda p: signal_received.append(p))
+
+        # Create an item with no user data
+        item = QTreeWidgetItem()
+        item.setText(0, "No Path Item")
+
+        # Should return early without emitting signal
+        file_tree._on_item_double_clicked(item, 0)
+
+        assert len(signal_received) == 0
+
+    def test_on_item_double_clicked_with_directory(self, file_tree, temp_dir):
+        """Test _on_item_double_clicked with directory doesn't emit file_selected."""
+        signal_received = []
+        file_tree.file_selected.connect(lambda p: signal_received.append(p))
+
+        # Create an item that points to a directory
+        item = QTreeWidgetItem()
+        item.setText(0, "📁 subdir")
+        item.setData(0, Qt.ItemDataRole.UserRole, str(temp_dir / "subdir"))
+
+        # Should not emit file_selected for directories
+        file_tree._on_item_double_clicked(item, 0)
+
+        assert len(signal_received) == 0
+
+    def test_load_directory_clears_existing(self, file_tree, temp_dir):
+        """Test that loading a new directory clears existing items."""
+        initial_count = file_tree.tree.topLevelItemCount()
+        assert initial_count > 0
+
+        # Load a different directory
+        import tempfile
+        with tempfile.TemporaryDirectory() as new_dir:
+            new_path = Path(new_dir)
+            (new_path / "new_file.py").write_text("# new")
+            file_tree.load_directory(new_path)
+
+            # Tree should be updated
+            assert file_tree.current_root == new_path

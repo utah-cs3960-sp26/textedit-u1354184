@@ -93,7 +93,33 @@ class EditorTabWidget(QTabWidget):
                 return current
         
         return self.new_tab(file_path)
-    
+
+    def open_file_with_content(self, file_path: str, text: str, modified: bool = False) -> TextEditor:
+        """Open a tab initialized with given text instead of reading from disk."""
+        for i in range(self.count()):
+            editor = self.widget(i)
+            if editor.file_path == file_path:
+                self.setCurrentIndex(i)
+                return editor
+
+        current = self.current_editor()
+        if (current and not current.file_path and
+            not current.is_modified and
+            not current.toPlainText()):
+            current.load_from_text(text, file_path, modified)
+            self._update_tab_title(current)
+            return current
+
+        editor = TextEditor()
+        editor.load_from_text(text, file_path, modified)
+        tab_name = Path(file_path).name
+        index = self.addTab(editor, tab_name)
+        self.setCurrentIndex(index)
+        editor.modification_changed.connect(
+            lambda modified: self._update_tab_title(editor)
+        )
+        return editor
+
     def save_current(self) -> bool:
         """Save the current file."""
         editor = self.current_editor()

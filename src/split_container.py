@@ -1,9 +1,11 @@
 """Split view container for side-by-side editing."""
 
-from PyQt6.QtWidgets import QSplitter, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QSplitter, QWidget, QVBoxLayout, QFileDialog
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QTextCursor
 
 from .tab_widget import EditorTabWidget
+from .editor import TextEditor
 
 
 class SplitContainer(QWidget):
@@ -16,6 +18,8 @@ class SplitContainer(QWidget):
         super().__init__(parent)
         self._active_tabs = None
         self._closing = False
+        self._file_syncs: dict[str, list[TextEditor]] = {}
+        self._syncing = False
         self._setup_ui()
     
     def _setup_ui(self):
@@ -92,7 +96,64 @@ class SplitContainer(QWidget):
     def _get_all_tab_widgets(self) -> list:
         """Get all tab widgets in the container."""
         return self.findChildren(EditorTabWidget)
-    
+
+    def find_editor_for_file(self, file_path: str) -> TextEditor | None:
+        """Return an open editor for this file path in any pane, or None."""
+        for tabs in self._get_all_tab_widgets():
+            for i in range(tabs.count()):
+                editor = tabs.widget(i)
+                if isinstance(editor, TextEditor) and editor.file_path == file_path:
+                    return editor
+        return None
+
+    def _register_sync(self, file_path: str, editor: TextEditor):
+        """Register an editor for live content sync on the given file path."""
+        if file_path not in self._file_syncs:
+            self._file_syncs[file_path] = []
+        group = self._file_syncs[file_path]
+        if editor not in group:
+            group.append(editor)
+            editor.document().contentsChange.connect(
+                lambda pos, removed, added, e=editor, fp=file_path:
+                    self._replay_edit(fp, e, pos, removed, added)
+            )
+
+    def _replay_edit(self, file_path: str, source: TextEditor, pos: int,
+                     chars_removed: int, chars_added: int):
+        """Replay an edit from source to all other editors showing the same file."""
+        if self._syncing:
+            return
+        group = self._file_syncs.get(file_path, [])
+        if len(group) <= 1:
+            return
+        self._syncing = True
+        try:
+            if chars_added > 0:
+                cursor = QTextCursor(source.document())
+                cursor.setPosition(pos)
+                cursor.setPosition(pos + chars_added, QTextCursor.MoveMode.KeepAnchor)
+                new_text = cursor.selectedText().replace('\u2029', '\n')
+            else:
+                new_text = ''
+            stale = []
+            for editor in group:
+                if editor is source:
+                    continue
+                try:
+                    tc = QTextCursor(editor.document())
+                    tc.beginEditBlock()
+                    tc.setPosition(pos)
+                    if chars_removed > 0:
+                        tc.setPosition(pos + chars_removed, QTextCursor.MoveMode.KeepAnchor)
+                    tc.insertText(new_text)
+                    tc.endEditBlock()
+                except RuntimeError:
+                    stale.append(editor)
+            for dead in stale:
+                group.remove(dead)
+        finally:
+            self._syncing = False
+
     def _remove_tab_widget(self, tabs: EditorTabWidget):
         """Remove a tab widget from the split."""
         parent = tabs.parent()
@@ -237,10 +298,28 @@ class SplitContainer(QWidget):
         return None
     
     def open_file(self, file_path=None):
-        """Open a file in the active tab widget."""
-        if self._active_tabs:
-            return self._active_tabs.open_file(file_path)
-        return None
+        """Open a file in the active tab widget. If already open elsewhere, syncs edits between both."""
+        if not self._active_tabs:
+            return None
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self._active_tabs, "Open File", "", "All Files (*)"
+            )
+            if not file_path:
+                return None
+        existing = self.find_editor_for_file(file_path)
+        if existing:
+            if self._active_tabs.indexOf(existing) >= 0:
+                self._active_tabs.setCurrentWidget(existing)
+                return existing
+            new_editor = self._active_tabs.open_file_with_content(
+                file_path, existing.toPlainText(), existing.is_modified
+            )
+            if new_editor:
+                self._register_sync(file_path, existing)
+                self._register_sync(file_path, new_editor)
+            return new_editor
+        return self._active_tabs.open_file(file_path)
     
     def save_current(self):
         """Save the current file in the active tab widget."""
@@ -283,6 +362,19 @@ class SplitContainer(QWidget):
             self._active_tabs.previous_tab()
     
     def open_file_path(self, file_path: str):
-        """Open a file by its full path."""
-        if self._active_tabs:
-            return self._active_tabs.open_file(file_path)
+        """Open a file by its full path. If already open elsewhere, syncs edits between both."""
+        if not self._active_tabs:
+            return None
+        existing = self.find_editor_for_file(file_path)
+        if existing:
+            if self._active_tabs.indexOf(existing) >= 0:
+                self._active_tabs.setCurrentWidget(existing)
+                return existing
+            new_editor = self._active_tabs.open_file_with_content(
+                file_path, existing.toPlainText(), existing.is_modified
+            )
+            if new_editor:
+                self._register_sync(file_path, existing)
+                self._register_sync(file_path, new_editor)
+            return new_editor
+        return self._active_tabs.open_file(file_path)

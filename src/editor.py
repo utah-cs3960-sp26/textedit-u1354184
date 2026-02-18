@@ -63,6 +63,12 @@ class TextEditor(QPlainTextEdit):
             return Path(self._file_path).name
         return "Untitled"
     
+    def load_from_text(self, text: str, file_path: str, modified: bool = False) -> None:
+        """Initialize editor with given text and file path (no disk read)."""
+        self.setPlainText(text)
+        self._file_path = file_path
+        self.document().setModified(modified)
+
     def load_file(self, file_path: str) -> bool:
         """Load content from a file."""
         try:

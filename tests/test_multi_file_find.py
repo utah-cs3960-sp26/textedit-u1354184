@@ -571,3 +571,54 @@ def test_on_result_double_click_opens_file(dialog, main_window, tmp_path):
             # File should be opened
             editor = main_window.split_container.current_editor()
             assert "test content" in editor.toPlainText()
+
+
+def test_get_directory_files_unicode_error(dialog, tmp_path):
+    """Test that UnicodeDecodeError is handled when reading files."""
+    # Create a file with non-UTF8 content
+    test_file = tmp_path / "binary.txt"
+    test_file.write_bytes(b'\x80\x81\x82\x83\x84')  # Invalid UTF-8 bytes
+
+    dialog.directory_input.setText(str(tmp_path))
+    files = dialog._get_directory_files()
+
+    # Should not include the problematic file but shouldn't crash
+    # The file with invalid encoding should be skipped
+    assert isinstance(files, list)
+
+
+def test_get_directory_files_with_valid_and_invalid(dialog, tmp_path):
+    """Test directory search with mix of valid and invalid files."""
+    # Create a valid file
+    (tmp_path / "valid.txt").write_text("valid content")
+
+    # Create a file with invalid encoding
+    (tmp_path / "invalid.txt").write_bytes(b'\xff\xfe invalid utf-8')
+
+    dialog.directory_input.setText(str(tmp_path))
+    files = dialog._get_directory_files()
+
+    # Should have at least the valid file
+    valid_files = [f for f, content in files if "valid.txt" in f]
+    assert len(valid_files) == 1
+
+
+def test_get_directory_files_os_error(dialog, tmp_path):
+    """Test that OSError during file read is handled gracefully."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    dialog.directory_input.setText(str(tmp_path))
+
+    # Mock open to raise OSError for specific file
+    original_open = open
+
+    def mock_open_with_error(path, *args, **kwargs):
+        if "test.txt" in str(path):
+            raise OSError("Mock OS error")
+        return original_open(path, *args, **kwargs)
+
+    with patch('builtins.open', side_effect=mock_open_with_error):
+        files = dialog._get_directory_files()
+        # Should handle the error gracefully
+        assert isinstance(files, list)

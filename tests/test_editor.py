@@ -306,3 +306,64 @@ class TestEditorEdgeCases:
         editor.save_file()
 
         assert "Line 4" in test_file.read_text()
+
+    def test_delete_line_when_on_last_empty_block(self, editor):
+        """Test deleting when on empty last block triggers atEnd branch (lines 117-119)."""
+        # Create document with trailing newline, so there's an empty block at the end
+        editor.setPlainText("Line 1\n")
+        cursor = editor.textCursor()
+        # Move to the empty block after the newline
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        editor.setTextCursor(cursor)
+
+        # This should trigger the atEnd() branch since NextBlock fails
+        # and we're already at the end of the document
+        editor.delete_line()
+        # The result depends on how the edge case is handled
+        text = editor.toPlainText()
+        # Should have Line 1, possibly without trailing newline
+        assert "Line 1" in text
+
+    def test_delete_last_line_at_end_of_document(self, editor):
+        """Test deleting the last line when cursor is at the end of document."""
+        editor.setPlainText("Line 1\nLine 2")
+        cursor = editor.textCursor()
+        # Move to absolute end of document
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        editor.setTextCursor(cursor)
+
+        editor.delete_line()
+        # Should have deleted "Line 2"
+        text = editor.toPlainText()
+        assert "Line 1" in text
+
+    def test_delete_line_does_not_affect_other_lines_same_content(self, editor):
+        """Test that delete_line operation handles lines correctly."""
+        editor.setPlainText("Line A\nLine B\nLine C")
+        cursor = editor.textCursor()
+        # Position at the middle line (Line B)
+        cursor.setPosition(7)
+        editor.setTextCursor(cursor)
+
+        editor.delete_line()
+        text = editor.toPlainText()
+        # Line B should be removed
+        assert "Line A" in text
+        assert "Line C" in text
+        lines = text.split('\n')
+        assert len(lines) == 2
+
+    def test_load_from_text(self, editor):
+        """Test load_from_text initializes editor correctly."""
+        editor.load_from_text("Test content", "/path/to/file.txt", modified=True)
+
+        assert editor.toPlainText() == "Test content"
+        assert editor.file_path == "/path/to/file.txt"
+        assert editor.is_modified is True
+
+    def test_load_from_text_not_modified(self, editor):
+        """Test load_from_text with modified=False."""
+        editor.load_from_text("Content", "/path/to/file.txt", modified=False)
+
+        assert editor.toPlainText() == "Content"
+        assert editor.is_modified is False

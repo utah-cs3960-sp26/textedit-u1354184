@@ -408,3 +408,66 @@ class TestDialogInteractions:
             mock_msg.return_value = QMessageBox.StandardButton.Cancel
             result = tab_widget.close_all_tabs()
             assert result is False
+
+
+class TestOpenFileWithContent:
+    """Test open_file_with_content functionality."""
+
+    def test_open_file_with_content_new_tab(self, tab_widget, tmp_path):
+        """Test open_file_with_content creates new tab with content."""
+        # First, fill the current tab so it can't be reused
+        current = tab_widget.current_editor()
+        current.setPlainText("Existing content")
+        current.document().setModified(True)
+
+        test_path = str(tmp_path / "synced.txt")
+        editor = tab_widget.open_file_with_content(test_path, "Synced content", modified=True)
+
+        assert editor is not None
+        assert editor.toPlainText() == "Synced content"
+        assert editor.file_path == test_path
+        assert editor.is_modified is True
+
+    def test_open_file_with_content_reuses_empty_tab(self, tab_widget, tmp_path):
+        """Test open_file_with_content reuses empty untitled tab."""
+        # Current tab should be empty and untitled
+        initial_count = tab_widget.count()
+
+        test_path = str(tmp_path / "reused.txt")
+        editor = tab_widget.open_file_with_content(test_path, "Reused content", modified=False)
+
+        assert editor is not None
+        assert editor.toPlainText() == "Reused content"
+        assert tab_widget.count() == initial_count  # No new tab created
+
+    def test_open_file_with_content_existing_path(self, tab_widget, tmp_path):
+        """Test open_file_with_content returns existing editor if path already open."""
+        test_path = str(tmp_path / "existing.txt")
+
+        # Open with content first
+        editor1 = tab_widget.open_file_with_content(test_path, "First content")
+
+        # Open same path again - should return existing
+        editor2 = tab_widget.open_file_with_content(test_path, "Different content")
+
+        assert editor1 is editor2
+        # Content should NOT change since we found existing
+        assert editor1.toPlainText() == "First content"
+
+    def test_open_file_with_content_creates_new_when_current_has_path(self, tab_widget, tmp_path):
+        """Test that a new tab is created when current tab has a file path."""
+        file1 = tmp_path / "file1.txt"
+        file1.write_text("File 1")
+
+        # Open first file
+        tab_widget.open_file(str(file1))
+        initial_count = tab_widget.count()
+
+        # Open with content - should create new tab since current has path
+        editor = tab_widget.open_file_with_content(
+            str(tmp_path / "file2.txt"),
+            "File 2 content"
+        )
+
+        assert editor is not None
+        assert tab_widget.count() == initial_count + 1
