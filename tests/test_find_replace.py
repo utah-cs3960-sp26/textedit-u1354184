@@ -162,10 +162,16 @@ class TestReplaceFunctionality:
         editor.setPlainText("Hello World")
         find_replace.find_input.setText(" World")
         find_replace.replace_input.setText("")
-        
         find_replace.replace_all()
-        
         assert editor.toPlainText() == "Hello"
+
+    def test_replace_with_replacement_text(self, editor, find_replace):
+        """Test replacing with replacement text."""
+        editor.setPlainText("Hello World")
+        find_replace.find_input.setText("Hello")
+        find_replace.replace_input.setText("Hi")
+        find_replace.replace()
+        assert editor.toPlainText() == "Hi World"
     
     def test_replace_no_match(self, editor, find_replace):
         """Test replace with no matches."""

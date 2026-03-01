@@ -1,11 +1,13 @@
 """Find and replace functionality."""
 
+import re
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
     QPushButton, QLabel, QCheckBox
 )
 from PyQt6.QtGui import QTextCursor, QTextDocument
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
 
 class FindReplaceWidget(QWidget):
@@ -17,6 +19,10 @@ class FindReplaceWidget(QWidget):
         super().__init__(parent)
         self._editor = None
         self._last_match_position = -1
+        self._match_count_timer = QTimer()
+        self._match_count_timer.setSingleShot(True)
+        self._match_count_timer.setInterval(150)
+        self._match_count_timer.timeout.connect(self._update_match_count)
         self._setup_ui()
         self._connect_signals()
         self.hide()
@@ -100,7 +106,8 @@ class FindReplaceWidget(QWidget):
     def _on_search_text_changed(self, text):
         """Handle search text changes."""
         self._last_match_position = -1
-        self._update_match_count()
+        # Debounce match counting for large files
+        self._match_count_timer.start()
         # Automatically find first match when text changes
         if text:
             # Move cursor to start of document to find first occurrence
@@ -118,67 +125,97 @@ class FindReplaceWidget(QWidget):
             flags |= QTextDocument.FindFlag.FindWholeWords
         return flags
     
+    def _count_matches(self, search: str, content: str) -> int:
+        """Count matches using Python string operations (much faster than QTextDocument.find loop)."""
+        case_sensitive = self.case_sensitive_cb.isChecked()
+        whole_word = self.whole_word_cb.isChecked()
+
+        if whole_word:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            pattern = r'\b' + re.escape(search) + r'\b'
+            return len(re.findall(pattern, content, flags))
+        elif case_sensitive:
+            return content.count(search)
+        else:
+            return content.lower().count(search.lower())
+
     def _update_match_count(self):
         """Update the match count label."""
         if not self._editor or not self.find_input.text():
             self.match_label.setText("")
             return
-        
-        text = self.find_input.text()
-        document = self._editor.document()
-        flags = self._get_find_flags()
-        
-        count = 0
-        cursor = QTextCursor(document)
-        while True:
-            cursor = document.find(text, cursor, flags)
-            if cursor.isNull():
-                break
-            count += 1
-        
+
+        search = self.find_input.text()
+        if self._editor.is_large_file_mode():
+            count = self._editor.count_matches_in_file(
+                search,
+                self.case_sensitive_cb.isChecked(),
+                self.whole_word_cb.isChecked(),
+            )
+        else:
+            content = self._editor.toPlainText()
+            count = self._count_matches(search, content)
         self.match_label.setText(f"{count} matches")
     
     def find_next(self):
         """Find the next occurrence."""
         if not self._editor or not self.find_input.text():
             return False
-        
+
         text = self.find_input.text()
         flags = self._get_find_flags()
-        
+
+        # Try in-window search first
         cursor = self._editor.textCursor()
         found = self._editor.document().find(text, cursor, flags)
-        
+
         if found.isNull():
             cursor = QTextCursor(self._editor.document())
             found = self._editor.document().find(text, cursor, flags)
-        
+
         if not found.isNull():
             self._editor.setTextCursor(found)
             self._last_match_position = found.position()
             return True
+
+        # For large files, search the full file via mmap
+        if self._editor.is_large_file_mode():
+            return self._editor.find_next_in_file(
+                text,
+                self.case_sensitive_cb.isChecked(),
+                self.whole_word_cb.isChecked(),
+            )
         return False
     
     def find_previous(self):
         """Find the previous occurrence."""
         if not self._editor or not self.find_input.text():
             return False
-        
+
         text = self.find_input.text()
         flags = self._get_find_flags() | QTextDocument.FindFlag.FindBackward
-        
+
+        # Try in-window search first
         cursor = self._editor.textCursor()
         found = self._editor.document().find(text, cursor, flags)
-        
+
         if found.isNull():
             cursor = QTextCursor(self._editor.document())
             cursor.movePosition(QTextCursor.MoveOperation.End)
             found = self._editor.document().find(text, cursor, flags)
-        
+
         if not found.isNull():
             self._editor.setTextCursor(found)
             self._last_match_position = found.position()
             return True
+
+        # For large files, search the full file via mmap
+        if self._editor.is_large_file_mode():
+            return self._editor.find_prev_in_file(
+                text,
+                self.case_sensitive_cb.isChecked(),
+                self.whole_word_cb.isChecked(),
+            )
         return False
     
     def replace(self):
@@ -203,28 +240,45 @@ class FindReplaceWidget(QWidget):
         return self.find_next()
     
     def replace_all(self):
-        """Replace all occurrences."""
+        """Replace all occurrences using fast Python string operations."""
         if not self._editor or not self.find_input.text():
             return 0
-        
-        text = self.find_input.text()
+
+        search = self.find_input.text()
         replacement = self.replace_input.text()
-        flags = self._get_find_flags()
-        
-        cursor = QTextCursor(self._editor.document())
-        cursor.beginEditBlock()
-        
-        count = 0
-        while True:
-            found = self._editor.document().find(text, cursor, flags)
-            if found.isNull():
-                break
-            found.insertText(replacement)
-            cursor = found
-            count += 1
-        
-        cursor.endEditBlock()
-        self._update_match_count()
+        case_sensitive = self.case_sensitive_cb.isChecked()
+        whole_word = self.whole_word_cb.isChecked()
+
+        # Large-file mode: delegate to backend patch-based replace
+        if self._editor.is_large_file_mode():
+            count = self._editor.replace_all_in_file(
+                search, replacement, case_sensitive, whole_word)
+            self._match_count_timer.start()
+            return count
+
+        content = self._editor.toPlainText()
+
+        if whole_word:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            pattern = r'\b' + re.escape(search) + r'\b'
+            new_content, count = re.subn(pattern, replacement, content, flags=flags)
+        elif case_sensitive:
+            count = content.count(search)
+            new_content = content.replace(search, replacement)
+        else:
+            flags = re.IGNORECASE
+            pattern = re.escape(search)
+            new_content, count = re.subn(pattern, replacement, content, flags=flags)
+
+        if count > 0:
+            cursor_pos = self._editor.textCursor().position()
+            self._editor.setPlainText(new_content)
+            cursor = self._editor.textCursor()
+            cursor.setPosition(min(cursor_pos, len(new_content)))
+            self._editor.setTextCursor(cursor)
+            self._editor.document().setModified(True)
+
+        self._match_count_timer.start()
         return count
     
     def keyPressEvent(self, event):

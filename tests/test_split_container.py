@@ -165,14 +165,14 @@ class TestFileOperations:
         assert test_file.read_text() == "Modified"
 
     def test_save_current_no_path(self, split_container):
-        """Test save_current returns False for untitled file without dialog."""
+        """Test save_current returns False for untitled file when dialog is cancelled."""
         # New tab has no file path
         split_container.new_tab()
-        # save_current will call save_current_as which shows dialog
-        # In test environment, dialog will be cancelled
-        result = split_container.save_current()
-        # Will return False since no dialog interaction
-        assert result is False or result is True  # Depends on dialog behavior
+        # save_current will call save_current_as which shows dialog - mock it
+        with patch('src.tab_widget.QFileDialog.getSaveFileName') as mock_dialog:
+            mock_dialog.return_value = ("", "")  # Simulate cancel
+            result = split_container.save_current()
+        assert result is False
 
 
 class TestCloseAllTabs:

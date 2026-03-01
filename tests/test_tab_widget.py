@@ -53,7 +53,8 @@ class TestTabWidgetBasics:
     def test_new_tab_nonexistent_file(self, tab_widget):
         """Test creating a new tab with nonexistent file."""
         initial_count = tab_widget.count()
-        editor = tab_widget.new_tab("/nonexistent/file.txt")
+        with patch('src.tab_widget.QMessageBox.warning'):
+            editor = tab_widget.new_tab("/nonexistent/file.txt")
         assert editor is None
         assert tab_widget.count() == initial_count  # No new tab created
 

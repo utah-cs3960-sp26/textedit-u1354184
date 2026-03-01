@@ -1,0 +1,7 @@
+small.txt
+medium.txt
+large.txt
+text-files/
+__pycache__/
+*.pyc
+.pytest_cache/

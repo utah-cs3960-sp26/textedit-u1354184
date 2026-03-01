@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QStatusBar,
-    QMenuBar, QMenu, QMessageBox, QInputDialog, QSplitter
+    QMenuBar, QMenu, QMessageBox, QInputDialog, QSplitter, QApplication
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence, QFont
@@ -14,6 +14,7 @@ from .split_container import SplitContainer
 from .find_replace import FindReplaceWidget
 from .multi_file_find import MultiFileFindDialog
 from .file_tree import FileTreeWidget
+from .frame_timer import FrameTimerWidget
 
 
 class MainWindow(QMainWindow):
@@ -44,19 +45,26 @@ class MainWindow(QMainWindow):
         self.file_tree = FileTreeWidget()
         self.file_tree.file_selected.connect(self._on_file_selected)
         self.file_tree.setMaximumWidth(300)
-        self.file_tree.hide()
         self.main_splitter.addWidget(self.file_tree)
         
         self.split_container = SplitContainer()
         self.main_splitter.addWidget(self.split_container)
-        
-        self.main_splitter.setSizes([0, 1000])
+
+        self.main_splitter.setSizes([250, 1000])
         layout.addWidget(self.main_splitter)
         
         self.find_replace = FindReplaceWidget()
         layout.addWidget(self.find_replace)
-        
+
+        self.frame_timer = FrameTimerWidget()
+        layout.addWidget(self.frame_timer)
+
         self.setCentralWidget(central)
+
+        # Install frame timer event filter on the application
+        app = QApplication.instance()
+        if app:
+            self.frame_timer.install(app)
     
     def _setup_menu_bar(self):
         """Set up the menu bar."""
@@ -111,6 +119,8 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         self._add_action(view_menu, "Next Tab", self.split_container.next_tab, QKeySequence("Ctrl+Tab"))
         self._add_action(view_menu, "Previous Tab", self.split_container.previous_tab, QKeySequence("Ctrl+Shift+Tab"))
+        view_menu.addSeparator()
+        self._add_action(view_menu, "Toggle Frame Timer", self.frame_timer.toggle, QKeySequence("Ctrl+P"))
         
         filetree_menu = menubar.addMenu("&FileTree")
         self._add_action(filetree_menu, "&Open FileTree", self._open_filetree)
@@ -260,7 +270,7 @@ class MainWindow(QMainWindow):
         if not editor:
             return
         
-        max_line = editor.document().blockCount()
+        max_line = editor.total_line_count
         line, ok = QInputDialog.getInt(
             self, "Go to Line",
             f"Line number (1-{max_line}):",

@@ -123,6 +123,8 @@ class SplitContainer(QWidget):
         """Replay an edit from source to all other editors showing the same file."""
         if self._syncing:
             return
+        if source.is_large_file_mode():
+            return
         group = self._file_syncs.get(file_path, [])
         if len(group) <= 1:
             return
@@ -312,6 +314,9 @@ class SplitContainer(QWidget):
             if self._active_tabs.indexOf(existing) >= 0:
                 self._active_tabs.setCurrentWidget(existing)
                 return existing
+            # Large-file editors open independently (no sync)
+            if existing.is_large_file_mode():
+                return self._active_tabs.open_file(file_path)
             new_editor = self._active_tabs.open_file_with_content(
                 file_path, existing.toPlainText(), existing.is_modified
             )
@@ -370,6 +375,9 @@ class SplitContainer(QWidget):
             if self._active_tabs.indexOf(existing) >= 0:
                 self._active_tabs.setCurrentWidget(existing)
                 return existing
+            # Large-file editors open independently (no sync)
+            if existing.is_large_file_mode():
+                return self._active_tabs.open_file(file_path)
             new_editor = self._active_tabs.open_file_with_content(
                 file_path, existing.toPlainText(), existing.is_modified
             )

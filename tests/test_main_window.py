@@ -325,15 +325,15 @@ class TestCloseEvent:
         event.accept.assert_called()
 
     def test_close_event_with_modified(self, main_window):
-        """Test close event with modified content."""
+        """Test close event with modified content - user discards."""
         editor = main_window.split_container.current_editor()
         editor.setPlainText("Modified content")
         editor.document().setModified(True)
 
-        # This would normally show a dialog
         event = Mock(spec=QCloseEvent)
-        # In test, the dialog will be auto-cancelled or we mock it
-        main_window.closeEvent(event)
+        with patch('src.tab_widget.QMessageBox.question') as mock_msg:
+            mock_msg.return_value = QMessageBox.StandardButton.Discard
+            main_window.closeEvent(event)
         # Either accept or ignore was called
         assert event.accept.called or event.ignore.called
 
