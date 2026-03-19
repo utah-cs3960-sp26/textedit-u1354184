@@ -117,7 +117,8 @@ class TextEditor(QPlainTextEdit):
         try:
             if self._backend is not None:
                 self._backend.close()
-            self._backend = LargeFileBackend(file_path)
+            self._backend = LargeFileBackend(
+                file_path, on_index_ready=self._on_index_ready)
             self._file_path = file_path
             self._total_lines = self._backend.total_lines
 
@@ -133,6 +134,21 @@ class TextEditor(QPlainTextEdit):
         except (IOError, OSError):
             self._backend = None
             return False
+
+    def _on_index_ready(self):
+        """Called from the background index thread when full index is built."""
+        QTimer.singleShot(0, self._update_after_index)
+
+    def _update_after_index(self):
+        """Update total lines and scrollbar after background indexing completes."""
+        if self._backend is None:
+            return
+        self._total_lines = self._backend.total_lines
+        sb = self._virtual_scrollbar
+        if sb is not None:
+            sb.blockSignals(True)
+            sb.setRange(0, max(0, self._total_lines - 1))
+            sb.blockSignals(False)
 
     def _install_virtual_scrollbar(self):
         """Install a virtual scrollbar that maps to the full file line range."""

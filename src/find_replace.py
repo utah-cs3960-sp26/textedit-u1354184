@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QTextCursor, QTextDocument
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
+from .search_worker import SearchWorker
+
 
 class FindReplaceWidget(QWidget):
     """Widget for find and replace operations."""
@@ -23,6 +25,9 @@ class FindReplaceWidget(QWidget):
         self._match_count_timer.setSingleShot(True)
         self._match_count_timer.setInterval(150)
         self._match_count_timer.timeout.connect(self._update_match_count)
+        self._worker = SearchWorker(self)
+        self._worker.count_finished.connect(self._on_count_finished)
+        self._worker.replace_finished.connect(self._on_replace_finished)
         self._setup_ui()
         self._connect_signals()
         self.hide()
@@ -147,15 +152,33 @@ class FindReplaceWidget(QWidget):
 
         search = self.find_input.text()
         if self._editor.is_large_file_mode():
-            count = self._editor.count_matches_in_file(
-                search,
-                self.case_sensitive_cb.isChecked(),
-                self.whole_word_cb.isChecked(),
-            )
-        else:
-            content = self._editor.toPlainText()
-            count = self._count_matches(search, content)
+            backend = self._editor._backend
+            if backend is not None:
+                self.match_label.setText("counting...")
+                self._worker.start_count(
+                    backend, search,
+                    self.case_sensitive_cb.isChecked(),
+                    self.whole_word_cb.isChecked(),
+                )
+                return
+        content = self._editor.toPlainText()
+        count = self._count_matches(search, content)
         self.match_label.setText(f"{count} matches")
+
+    def _on_count_finished(self, count):
+        """Handle async count result from worker thread."""
+        self.match_label.setText(f"{count} matches")
+
+    def _on_replace_finished(self, count):
+        """Handle async replace-all result from worker thread."""
+        self.replace_all_btn.setEnabled(True)
+        self.replace_all_btn.setText("Replace All")
+        if self._editor and count > 0:
+            # Reload current window to show changes
+            center = (self._editor._win_start + self._editor._win_end) // 2
+            self._editor._reload_window(center)
+            self._editor.document().setModified(True)
+        self._match_count_timer.start()
     
     def find_next(self):
         """Find the next occurrence."""
@@ -249,12 +272,16 @@ class FindReplaceWidget(QWidget):
         case_sensitive = self.case_sensitive_cb.isChecked()
         whole_word = self.whole_word_cb.isChecked()
 
-        # Large-file mode: delegate to backend patch-based replace
+        # Large-file mode: delegate to worker thread for async replace
         if self._editor.is_large_file_mode():
-            count = self._editor.replace_all_in_file(
-                search, replacement, case_sensitive, whole_word)
-            self._match_count_timer.start()
-            return count
+            backend = self._editor._backend
+            if backend is not None:
+                self._editor._flush_edits_to_backend()
+                self.replace_all_btn.setEnabled(False)
+                self.replace_all_btn.setText("Replacing...")
+                self._worker.start_replace(
+                    backend, search, replacement, case_sensitive, whole_word)
+                return 0  # actual count delivered via signal
 
         content = self._editor.toPlainText()
 
